@@ -3,7 +3,7 @@ const ytdl = require('ytdl-core');
 const axios = require('axios');
 
 // Replace 'YOUR_BOT_TOKEN' with your actual token
-const BOT_TOKEN = 'YOUR_BOT_TOKEN';
+const BOT_TOKEN = 'YTaudio_pba_bot';
 
 const bot = new Telegraf(BOT_TOKEN);
 
