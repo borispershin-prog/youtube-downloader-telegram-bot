@@ -1,57 +1,60 @@
-const { Telegraf, Composer, filter } = require('telegraf');
-const ytdl = require('ytdl-core');
-const axios = require('axios');
+import { Telegraf } from "telegraf";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
 
-// Replace 'YOUR_BOT_TOKEN' with your actual token
-const BOT_TOKEN = 'YTaudio_pba_bot';
+// Токен берём из Environment
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
+if (!BOT_TOKEN) {
+  throw new Error("❌ BOT_TOKEN is not defined. Проверь Environment Variables в Render!");
+}
 
 const bot = new Telegraf(BOT_TOKEN);
 
 bot.start((ctx) => {
-  ctx.reply('Welcome to the YouTube Audio Bot by tomk1v! Send a YouTube link to fetch audio.');
+  ctx.reply("Привет! Пришли ссылку на YouTube — я пришлю голосовое 🎧");
 });
 
-async function downloadImage(url) {
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(response.data, 'binary');
-}
-
-bot.on('text', async (ctx) => {
+bot.on("text", async (ctx) => {
   const url = ctx.message.text;
+  const chatId = ctx.chat.id;
 
-  try {
-    // Inform the user that the file is being downloaded
-    ctx.reply('🚀 Downloading the audio file. Please wait...');
-    
-    // Get basic video info
-    const info = await ytdl.getInfo(url);
+  // Имя временного файла
+  const fileName = path.resolve(`audio_${Date.now()}.ogg`);
 
-    // Get the highest quality audio stream
-    const audioStream = ytdl(url, { quality: 'highestaudio' });
+  await ctx.reply("⏳ Загружаю и конвертирую аудио... Это может занять время для длинных видео.");
 
-    // Use video title and author for the filename
-    const filename = `${info.videoDetails.title} - ${info.videoDetails.author.name}.m4a`;
-    
-    // Use the first available thumbnail URL
-    const thumbUrl = info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1].url;
-    
-    // Download the thumbnail image
-    const thumbBuffer = await downloadImage(thumbUrl);
-    
-    // Send the audio as a voice message with thumbnail
-    ctx.replyWithAudio(
-      { source: audioStream, filename: filename },
-      {
-        title: info.videoDetails.title,
-        performer: info.videoDetails.author.name,
-        duration: info.videoDetails.lengthSeconds,
-        thumb: { source: thumbBuffer }
-      }
-    );
-  } catch (error) {
-    console.error('Error:', error.message);
-    ctx.reply('Error fetching audio. Please check the YouTube link and try again.');
-  }
+  // Команда yt-dlp + ffmpeg для конвертации в opus (ogg)
+  const cmd = `
+    yt-dlp -f bestaudio \
+    -o "${fileName}" \
+    --extract-audio \
+    --audio-format opus \
+    --audio-quality 0 \
+    "${url}"
+  `;
+
+  exec(cmd, async (error) => {
+    if (error) {
+      console.error(error);
+      ctx.reply("❌ Ошибка при скачивании/конвертации");
+      return;
+    }
+
+    // Отправляем как голосовое сообщение
+    try {
+      await ctx.replyWithVoice({ source: fs.createReadStream(fileName) });
+    } catch (err) {
+      console.error(err);
+      ctx.reply("❌ Ошибка при отправке аудио");
+    } finally {
+      // Удаляем временный файл
+      fs.unlinkSync(fileName);
+    }
+  });
 });
 
 bot.launch();
+
+console.log("✅ Бот запущен");
